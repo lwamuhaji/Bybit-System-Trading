@@ -1,44 +1,49 @@
 from derivativesTrader import DerivativesTrader
 import Responses
-from typing import NamedTuple
 
-class Account(NamedTuple):
-    buyOrder: Responses.OrderWithStatus = None
-    sellOrder: Responses.OrderWithStatus = None
+class Account:
+    def __init__(self, buyOrder=None, sellOrder=None) -> None:
+        self.buyOrder: Responses.Order = buyOrder
+        self.sellOrder: Responses.Order = sellOrder
 
-class Params(NamedTuple):
-    openTH: float
-    closeTH: float
-    qty: float
-    orderCount: int
-    qtyWeight: float
-    THWeight: float
+class Params:
+    def __init__(self, openTH, closeTH, qtyStep, qtyWeight, THWeight, orderCount) -> None:
+        self.openTH = openTH
+        self.closeTH = closeTH
+        self.qtyStep = qtyStep
+        self.qtyWeight = qtyWeight
+        self.THWeight = THWeight
+        self.orderCount = orderCount
 
-class Spread(NamedTuple):
-    open_buyPrice: float = 0
-    open_sellPrice: float = 0
-    close_buyPrice: float = 0
-    close_sellPrice: float = 0
+class Spread:
+    def __init__(self, open_buyPrice=None, open_sellPrice=None, close_buyPrice=None, close_sellPrice=None, qty=None) -> None:
+        self.open_buyPrice: float = open_buyPrice
+        self.open_sellPrice: float = open_sellPrice
+        self.close_buyPrice: float = close_buyPrice
+        self.close_sellPrice: float = close_sellPrice
+        self.qty: float = qty
 
 class DerivativesStrategy:
 
-    def __init__(self, api_key, api_secret, symbol, openTH, closeTH, qtyWeight, THWeight) -> None:
-        self.trader: DerivativesTrader = DerivativesStrategy.__createTrader(api_key, api_secret, symbol)
+    def __init__(self, api_key, api_secret, symbol, openTH, closeTH, qtyWeight, THWeight, limit, interval) -> None:
+        self.trader: DerivativesTrader = DerivativesStrategy.__createTrader(api_key=api_key, api_secret=api_secret, symbol=symbol, limit=limit, interval=interval)
         self.params = Params(openTH=openTH, closeTH=closeTH, 
-                             qty=self.trader.symbol.QTYSTEP, 
+                             qtyStep=self.trader.symbol.QTYSTEP,
                              qtyWeight=qtyWeight, THWeight=THWeight, 
                              orderCount=0)
         self.account = Account()
         self.spread = Spread()
 
-    def __createTrader(api_key, api_secret, symbol) -> DerivativesTrader:
-        return DerivativesTrader(api_key, api_secret, symbol)
+    def __createTrader(api_key, api_secret, symbol, limit, interval) -> DerivativesTrader:
+        return DerivativesTrader(api_key, api_secret, symbol, limit, interval)
 
     def updateSpread(self):
+        self.spread.qty = self.params.qtyStep * 2 ** self.params.orderCount
+
         average_price = self.trader.getAvgPrice()
 
-        upper_spread = (lambda avg, threshold, count: avg * (1 + threshold) ** count)
-        lower_spread = (lambda avg, threshold, count: avg * (1 - threshold) ** count)
+        upper_spread = (lambda avg, threshold, count: round(avg * (1 + threshold) ** count), 3)
+        lower_spread = (lambda avg, threshold, count: round(avg * (1 - threshold) ** count), 3)
 
         self.spread.open_buyPrice = upper_spread(average_price, self.params.openTH, self.params.orderCount)
         self.spread.open_sellPrice = lower_spread(average_price, self.params.openTH, self.params.orderCount)
@@ -117,15 +122,25 @@ class DerivativesStrategy:
             return False
 
     def refreshBuyOrder(self):
-        pass
+        old_open_buyPrice = self.spread.open_buyPrice
+        self.updateSpread()
+        if self.spread.open_buyPrice == old_open_buyPrice:
+            return
+        else:
+            self.trader.replaceOrder(self.account.buyOrder, self.spread.open_buyPrice)
 
     def refreshSellOrder(self):
-        pass
+        old_open_sellPrice = self.spread.open_sellPrice
+        self.updateSpread()
+        if self.spread.open_sellPrice == old_open_sellPrice:
+            return
+        else:
+            self.trader.replaceOrder(self.account.buyOrder, self.spread.open_buyPrice)
 
 class MyStrategy(DerivativesStrategy):
     
-    def __init__(self, api_key, api_secret, symbol, openTH, closeTH, qtyWeight, THWeight) -> None:
-        super().__init__(api_key, api_secret, symbol, openTH, closeTH, qtyWeight, THWeight)
+    def __init__(self, api_key, api_secret, symbol, openTH, closeTH, qtyWeight, THWeight, limit, interval) -> None:
+        super().__init__(api_key, api_secret, symbol, openTH, closeTH, qtyWeight, THWeight, limit, interval)
 
     def startTrade(self) -> int:
         if self.trader.hasPosition():
